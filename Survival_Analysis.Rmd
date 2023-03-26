@@ -1,0 +1,257 @@
+---
+title: "01869053_Coursework"
+output:
+  pdf_document: default
+  html_document: default
+date: "2023-03-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Part 1
+
+```{r}
+q2.data = read.csv("cwdat.csv")
+```
+
+### (a)
+We first define the cumulative hazard rate and hazard rate function respectively:
+$$
+h(t) = \lambda \quad \text{and} \quad H(t) = \lambda t
+$$
+Maximum likelihood estimation is used to find the optimal parameter for exponential distribution. The following functions are borrowed from the R Examples provided on Blackboard.
+
+The inferred parameter is reported as follow.
+```{r}
+## Model exponential distribution
+exp.model <- list(
+  validtheta = function(theta) theta>0,
+  h = function(x,theta) rep(theta,length(x)),
+  H = function(x,theta) theta*x
+)
+
+## Maximum Likelihood function
+exp.l <- function(theta,data) {
+  if (!exp.model$validtheta(theta)) return(-Inf)
+  sum(log(exp.model$h(q2.data$T[q2.data$Delta==1],theta)))-
+    sum(exp.model$H(q2.data$T,theta))
+}
+
+## Optimisation to search the theta maximises the log-likelihood function
+exp.o <- optim(c(1),fn=function(theta) -exp.l(theta,q2.data),
+      method="Brent",lower=1e-4,upper=1e6,
+      hessian=TRUE)
+
+## Report the parameter
+cat("Optimal parameter for exponential fitting:", exp.o$par, "\n")
+
+## Error Check
+cat("Standard error of the parameter:", sqrt(solve(exp.o$hessian))[1,1], "\n")
+```
+The standard error is quite small, so we have confidence that our estimated optimal parameter is true.
+
+
+
+### (b)
+Now we implement the Weibull Distribution, recall the hazard and cumulative hazard functions from lecture notes:
+$$
+h(t)=\eta\alpha^{-\eta}t^{\eta-1} \quad \text{and} \quad H(t) = (\frac{t}{\alpha})^{\eta}
+$$
+And we again maximise its log-likelihood function $\ell(\alpha, \eta)=\sum_{i \in U} \log h\left(t_i ; \alpha, \eta\right)-\sum_{i=1}^n H\left(t_i ; \alpha, \eta\right)$. In R, the method of "L-BFGS-B" is used to maximise $\{\alpha, \eta\}$ simultaneously. 
+
+The inferred parameters are reported below.
+
+```{r}
+## Model Weibull distribution
+weibull.model <- list(
+  validalpha = function(alpha) alpha > 0,
+  valideta = function(eta) eta > 0,
+  h = function(x, alpha, eta) eta*alpha^(-eta)*x^(eta-1),
+  H = function(x, alpha, eta) (x/alpha)^eta
+)
+
+## Maximum Likelihood function
+weibull.l <- function(alpha, eta, data) {
+  if (!weibull.model$validalpha(alpha) | !weibull.model$valideta(eta)) return(-Inf)
+  sum(log(weibull.model$h(q2.data$T[q2.data$Delta==1],alpha, eta)))-
+    sum(weibull.model$H(q2.data$T,alpha, eta))
+}
+
+## Optimisation to search the parameters maximise the log-likelihood function
+weibull.o <- optim(c(1, 1), fn=function(par) -weibull.l(par[1], par[2], q2.data),
+                   method='L-BFGS-B', lower=c(1e-4, 1e-4), upper=c(1e6,1e6),
+                   hessian=TRUE)
+
+## Report the parameters
+cat(paste("Optimal scale (alpha) for Weibull fitting:", weibull.o$par[1], "\n",
+          "Standard error of scale (alpha):", sqrt(solve(weibull.o$hessian))[1,1], "\n",
+          "Optimal shape (eta) for Weibull fitting:", weibull.o$par[2], "\n",
+          "Standard error of shape (eta) :", sqrt(solve(weibull.o$hessian))[2,2], "\n"
+          ))
+```
+It can be seen that standard error of either parameters is not large, again we have confidence that our estimated parameters are true.
+
+
+
+
+
+### (c)
+Recall the survivor functions of exponential and Weibull distribution,
+$$
+S_{\text{exp}}(t)=exp(-\lambda t) \quad \text{and} \quad S_{\text{Weibull}}(t)=exp(-(\frac{t}{\alpha})^\eta)
+$$
+They are plotted against our event times. Kaplan-Meier estimation is plotted using codes given in R Example.
+  
+```{r}
+## KM Estimate with CI
+library(survival)
+## Plot the KM estimate with CI
+KM.fit <- survfit(Surv(q2.data$T, q2.data$Delta) ~ 1, conf.int=0.95, conf.type = "plain")
+plot(KM.fit, main = "Estimated Survivor Function", 
+     xlab="Time", ylab="Survival Probability") 
+
+## Create time variables
+t <- seq(0, max(q2.data$T), length.out = 1000)
+## Plot the survival function for the exponential distribution
+exp.survival <- exp(-exp.o$par *t)
+lines(t, exp.survival, col = "blue")
+
+## Plot the survival function for the Weibull distribution
+alpha <- weibull.o$par[1]
+eta <- weibull.o$par[2]
+weibull.survival <- exp(-(t/alpha)^eta)
+lines(t, weibull.survival, col = "red")
+
+## Add a legend
+legend("topright", legend = c("KM Estimate", "Exponential", "Weibull"), 
+       lty = 1, col = c("black", "blue", "red"))
+```
+
+From the figure we can see that, the Weibull survivor function is closer to the Kaplan-Meier estimator. Although under 95% confidence interval, both the fitted survivor functions are not quite within the interval, in comparison, the Weibull survivor function is at least following the trend of the KM estimator. 
+
+As the KM estimator shows, the survivor rate drops heavily at the beginning, then decreases slowing from t = 2 to t = 8. It suggests that our data is likely to have a decreasing hazard rate. This is in line with our fitted Weibull distribution, where Weibull distribution with $\eta < 1$ has monotonically decreasing hazard rate. Yet, the KM estimator for t > 8 indicates an increasing hazard rate, where the fitted Weibull distribution fails to show. However, Weibull distribution still outperforms the exponential distribution where the hazard rate is constant. 
+
+Hence, we conclude that the Weibull distribution is a more appropriate model for our data.
+
+### (d)
+By lecture notes, the Nelson-Aalen estimate of continuous cumulative hazard function is $-log(\hat S(t))$ where $\hat S(t)$ is the Kaplan-Meier estimate I obtained from part(c).
+The two fitted cumulative hazard functions are calculated by
+$$
+\hat H_\text{exp}(t)=\hat \lambda_\text{MLE}t \quad \text{and} \quad \hat H_\text{Weibull}(t)=(\frac{t}{\hat \alpha_\text{MLE}})^{\hat \eta_\text{MLE}}
+$$
+
+```{r}
+# Original cumulative hazard function
+exp.cumhaz.est <- exp.model$H(t, exp.o$par)
+weibull.cumhaz.est <- weibull.model$H(t, weibull.o$par[1], weibull.o$par[2])
+
+# Fit the survival function using the Nelson-Aalen estimator
+plot(KM.fit, fun="cumhaz", xlab="Time", ylab="Cumulative Hazard Rate", 
+     main="Estimated Cumulative Hazard Function")
+# Plot the estimated hazard function of exponential and weibull distribution
+lines(t, exp.cumhaz.est, col='blue')
+lines(t, weibull.cumhaz.est, col='red')
+# Add a legend
+legend("topright", legend = c("Nelson-Aalen", "Exponential", "Weibull"), 
+       lty = 1, col = c("black", "blue", "red"))
+```
+The Nelson-Aalen Estimate clearly shows that the estimated cumulative hazard function is not linear. This is in line with our results in part (c) of changing hazard rate. This again indicates that the exponential distribution is not a good fit where the cumulatice hazard function is linear with changing constant $\hat \lambda_\text{MLE}$.
+
+In contrast, the Weibull distribution is mostly following the trend of Nelson-Aalen estimate. Both of them have a decreasing hazard rate for t < 8. For t > 8, the Nelson-Aalen cumulative hazard rate increases largely, this is expected as we know from part (c) that the hazard rate is increasing for t > 8. Weibull distribution does not perform well here but it is still a more appropriate model compared to the exponential distribution.
+
+
+
+
+
+## Part 2
+
+### (a)
+In this question, the dataset "pbc" from "survival" package is investigated. The dataset, collected from Mayo Clinic, is about primary sclerosing cholangitis, an autoimmune disease that causes damage to the small bile ducts in the liver, leading to cirrhosis and liver decompensation. For simplicty, I omitted all the rows which contain N/A values, and removed the status 'transplant', leaving the status either to be dead or censored.
+
+Upon request, I select 5 covariates from the dataset as follows:
+1. age of patients in years; 2. sex: 1 for male and 2 for female; 3. protime: standardised blood clotting time; 4. albumin: serum albumin in g/dl; 5. platelet: platelet count.
+
+Besides, time is the number of days between the regristration of the patient and the earlier of death/study analysis; Status is the status of each patient at the endpoint, 0 for censored, 1 for dead. We can viualise the first five rows of our studied dataset.
+```{r}
+library(survival)
+data(pbc)
+## Data Cleaning
+pbc <- na.omit(pbc)
+pbc <- pbc[pbc$status != 1, ]
+pbc$status <- ifelse(pbc$status == 2, 1, pbc$status)
+pbc$sex <- ifelse(pbc$sex == "m", 1, 2)
+q3.data <- pbc[, c("time", "status", "age", "sex", "protime", "albumin", "platelet")]
+## Visualisation
+head(q3.data, 5)
+```
+
+
+### (b)
+First I will perform a parametric fit. Assume the dataset has an integrated hazard rate, I fit an weibull distribution to it, with all the covariates as predictors, using following code.
+```{r}
+weibull.fit <- survreg(Surv(time, status)~., data=q3.data, dist='weibull')
+summary(weibull.fit)
+```
+First of all, as the chi-square test statistic is significant, it means our weibull model is significant, providing a better fit than using only the intercept.
+
+By evaluating the P values of each parameters, it can be seen that the coefficients for sex, protime, albumin are statistically significant at the 0.05 significance level. Whereas, the age of the patient and the platelet count are not statistically significant to the survival of the patients, and we believe these two are not very influential factors to the survival time of our patients.
+
+The sex is having a positive coefficient of 0.483 which means, by assuming a linear relationship between sex being 1 and 2, the female (2) has a higher risk of death than the male (1); The protime is having a negative coefficient, which means the less the standardised blood clotting time, the more dangerous the patient is; The albumin is having a positive coefficient, so the higher the serum albumin, the more dangerous the patient is. By comparing the coefficient, albumin is having the most significiant effect in the survival time of the studied objects.
+
+We now implement the semi-parametric model -- Cox's Proportional hazard model.
+```{r}
+coxph.fit <- coxph(Surv(time, status)~., data=q3.data)
+coxph.fit
+```
+Again by checking the test statistics and P values, we know our semi-parametric model is significant, and there are still sex, protime, and albumin being statistically significant, however, in slightly different way.
+
+Sex is having a negative parameter, which means males are having a greater risk than females. The hazard rate of female is 56.7% less than hazard rate of male. Likewise, the albumin count is having a negative parameter, which means the hazard rate decreased by 0.20 unit when there is an unit increase in albumin count. Last but not least, The standardised blood clotting time (protime) is having a positive parameter, which means, one unit increase in the clotting time, the hazard rate will be increased by 1.39 units. Again, the albumin count has the most effect in suvival time.
+
+### (c)
+Base on our analysis of the Cox's model in part (b), we know keep our focus on the features, sex, protime and albumin only. Then I use it as regression model to fit on data with different covariates: 1. male patient with standard clotting time 12 and albumin count 2.5; 2. same as 1 but with albumin count 4.5; 3. same as 1 but with standard clotting time 20; 4. Female patient with standard clotting time 12 and albumin count 2.5. A Kaplan-Meier estimate is also calculated.
+
+```{r}
+## Cox model base on our three predictors
+coxph.model <- coxph(Surv(time, status) ~ sex + protime + albumin, data = q3.data)
+summary(coxph.model)
+
+# Create Kaplan-Meier plot
+km.survfit <- survfit(Surv(time, status) ~ 1, data = q3.data)
+
+# Create survival curves for different combinations of covariates
+survfit1 <- survfit(coxph.model, newdata = data.frame(sex = 1, protime = 12, albumin = 2.5))
+survfit2 <- survfit(coxph.model, newdata = data.frame(sex = 1, protime = 12, albumin = 4.5))
+survfit3 <- survfit(coxph.model, newdata = data.frame(sex = 1, protime = 20, albumin = 2.5))
+survfit4 <- survfit(coxph.model, newdata = data.frame(sex = 2, protime = 12, albumin = 2.5))
+
+# Plot survival curves with confidence intervals
+plot(survfit1, conf.int = FALSE, col='brown', main = "Survival Curves by Covariate Combinations",
+     xlab = "Time", ylab = "Survival Probability")
+lines(survfit2, conf.int = FALSE,col='blue4')
+lines(survfit3, conf.int = FALSE,col='darkgreen')
+lines(survfit4, conf.int = FALSE, col='darkviolet')
+lines(km.survfit)
+
+# Add legend
+legend("bottomright", legend = c("Fit-1", "Fit-2", 
+                                "Fit-3", "Fit-4", "Kaplan-Meier"),
+       col = c("brown", "blue4", "darkgreen", "darkviolet", "black"), lty = 1, 
+       cex = 0.8, bty = "n",inset = c(0.02, 0.02))
+
+```
+From the Kaplan-Meier estimate, we can see that the survival probability at the end of study is about 30%. 
+
+Now let us start with comparing the blue line with the brown line. It can be seen that the blue line is even higher than the upper confidence bound of KM estimate, which means a higher survival probability than the average in the dataset. It suggests that, for male patients with standard clotting time 12, higher albumin count provides a much higher survival rate.
+
+By comparing the green line with the brown line, it says that with gender and albumin count fixed, a longer clotting time will increase the hazard rate severely, as the green line has a extremely large gradient in magnitude. 
+
+By comparing the purple line with the brown line, with fixed albumin count and clotting time, it suggests that the female patients have higher survival probability over time compared to male patients.
+
+These are in line with our statistical result: higher albumin count and female patient mean less hazard rate; longer clotting time means severe hazard rate.
+
+
+
+
