@@ -2,7 +2,7 @@
 
 This repository contains the coursework completed for the 'Survival Model Analysis' module under the Department of Mathematics at Imperial College London.
 
-This is not an exhaustively analysis because there is a page limited set in this coursework, here is a an outline of this analysis:
+This is not an exhaustively analysis because there is a page limited set in this coursework, here is an outline of this analysis:
 
 ##### Part One. 
 Base on the dataset cwdata.csv,
